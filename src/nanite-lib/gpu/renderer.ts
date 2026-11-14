@@ -205,9 +205,10 @@ export class NaniteRenderer {
     u.prevTime.value = u.time.value;
     u.time.value = time;
     if (this.frozen) return;
-    u.camPos.value.copy(camera.position);
+    camera.updateWorldMatrix(true, false);
+    camera.getWorldPosition(u.camPos.value);
     // both views measure LOD from the camera (the shadow view too, so casters match what's seen)
-    for (const v of [this.main, this.shadow]) v.lodPos.value.copy(camera.position).add(v.lodShift);
+    for (const v of [this.main, this.shadow]) v.lodPos.value.copy(u.camPos.value).add(v.lodShift);
     u.projScale.value = viewportHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     // a zoomed view (narrow fov) wants more detail on screen, but the shadow map's resolution doesn't change:
     // keep the shadow casters' LOD where it is unzoomed

@@ -2,10 +2,10 @@
 import { chromium } from 'playwright-core';
 import type { Browser, Page } from 'playwright-core';
 import { createServer } from 'vite';
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, resolve, relative, isAbsolute } from 'node:path';
 
 /**
  * Points TEMP/TMP at tools/tmp/browser/run-<pid> (Playwright puts the browser profile in os.tmpdir(), which reads
@@ -47,12 +47,19 @@ const PRECOMPRESSED = new Set(['.png', '.jpg', '.webp', '.mp3']);
  * images and audio (Pages gzips .nm too), `Cache-Control: max-age=600`. Returns { url, close }.
  */
 export async function startStatic(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
+  const root = realpathSync(dir);
+  const inside = (file: string): boolean => {
+    const rel = relative(root, file);
+    return rel !== '..' && !rel.startsWith('../') && !rel.startsWith('..\\') && !isAbsolute(rel);
+  };
   const gz = new Map<string, Buffer>();
   const server = createHttpServer((req, res) => {
-    const path = normalize(join(dir, decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)));
-    let file = path.startsWith(normalize(dir)) ? path : '';
     try {
-      if (file && statSync(file).isDirectory()) file = join(file, 'index.html');
+      let file = resolve(root, '.' + decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname));
+      if (!inside(file)) throw new Error('outside static root');
+      if (statSync(file).isDirectory()) file = join(file, 'index.html');
+      file = realpathSync(file);
+      if (!inside(file)) throw new Error('outside static root');
       const ext = extname(file);
       let body: Buffer = readFileSync(file);
       const headers: Record<string, string> = { 'Content-Type': TYPES[ext] ?? 'application/octet-stream', 'Cache-Control': 'max-age=600' };

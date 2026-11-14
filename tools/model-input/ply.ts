@@ -14,11 +14,14 @@ interface PlyElement {
 
 export function readPly(buf: Buffer): { pos: Float32Array; idx: Uint32Array } {
   const headEnd = buf.indexOf('end_header');
+  if (headEnd < 0) throw new Error('PLY header is missing end_header');
   const header = buf.subarray(0, headEnd).toString('latin1').split(/\r?\n/);
   let body = headEnd + 'end_header'.length;
-  while (buf[body] !== 0x0a) body++;
-  body++;
+  const newline = buf.indexOf(0x0a, body);
+  if (newline < 0 || !/^\r?$/.test(buf.subarray(body, newline).toString('latin1'))) throw new Error('PLY header is truncated');
+  body = newline + 1;
   const format = header.find((l) => l.startsWith('format'))?.split(' ')[1];
+  if (header[0]?.trim() !== 'ply' || !['ascii', 'binary_little_endian', 'binary_big_endian'].includes(format ?? '')) throw new Error('unsupported PLY format');
   const elements: PlyElement[] = [];
   for (const l of header) {
     const w = l.trim().split(/\s+/);
@@ -46,15 +49,37 @@ export function readPly(buf: Buffer): { pos: Float32Array; idx: Uint32Array } {
     const lines = buf.subarray(body).toString('latin1').split(/\r?\n/);
     let li = 0;
     for (const el of elements) {
+      if (!Number.isSafeInteger(el.count) || el.count < 0 || el.count > lines.length) throw new Error('invalid PLY element count');
       if (el.name === 'vertex') {
-        const xi = el.props.findIndex((p) => p.name === 'x');
+        if (!['x', 'y', 'z'].every((name) => el.props.some((p) => p.name === name && !p.list))) throw new Error('PLY vertices need x, y, z');
         pos = new Float32Array(el.count * 3);
-        for (let i = 0; i < el.count; i++) { const w = lines[li++].trim().split(/\s+/).map(Number); pos.set(w.slice(xi, xi + 3), i * 3); }
-      } else if (el.name === 'face') {
-        for (let i = 0; i < el.count; i++) { const w = lines[li++].trim().split(/\s+/).map(Number); for (let k = 2; k < w[0]; k++) idx.push(w[1], w[k], w[k + 1]); }
-      } else li += el.count;
+      }
+      for (let i = 0; i < el.count; i++) {
+        const line = lines[li++];
+        if (!line?.trim()) throw new Error('PLY body is truncated');
+        const w = line.trim().split(/\s+/).map(Number);
+        let at = 0;
+        for (const p of el.props) {
+          if (p.list) {
+            const count = w[at++];
+            if (!Number.isSafeInteger(count) || count < 0 || count > w.length - at) throw new Error('invalid PLY list length');
+            if (el.name === 'face' && (p.name === 'vertex_indices' || p.name === 'vertex_index')) {
+              for (let k = 0; k < count; k++) if (!Number.isSafeInteger(w[at + k]) || w[at + k] < 0) throw new Error('invalid PLY vertex index');
+              for (let k = 1; k + 1 < count; k++) idx.push(w[at], w[at + k], w[at + k + 1]);
+            }
+            at += count;
+          } else {
+            const value = w[at++];
+            if (!Number.isFinite(value)) throw new Error('invalid PLY scalar');
+            const axis = ['x', 'y', 'z'].indexOf(p.name);
+            if (el.name === 'vertex' && axis >= 0) pos![i * 3 + axis] = value;
+          }
+        }
+        if (at !== w.length) throw new Error('PLY row does not match its properties');
+      }
     }
     if (!pos) throw new Error('no vertices');
+    if (idx.some((i) => i >= pos!.length / 3)) throw new Error('PLY vertex index out of range');
     return { pos, idx: Uint32Array.from(idx) };
   }
   let o = body, idx = new Uint32Array(0);

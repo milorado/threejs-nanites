@@ -134,10 +134,13 @@ export async function runProfile(ctx: ProfileContext, progress: ProfileProgress)
         lines.push(`  ${s.label.padEnd(18)} (already)`);
         continue;
       }
-      const [r, c] = await sample(auto);
-      timed++;
-      undo();
-      lines.push(`  ${s.label.padEnd(18)} render ${f(r)}  compute ${f(c)}  saves ${f(r0 + c0 - r - c)}`);
+      try {
+        const [r, c] = await sample(auto);
+        timed++;
+        lines.push(`  ${s.label.padEnd(18)} render ${f(r)}  compute ${f(c)}  saves ${f(r0 + c0 - r - c)}`);
+      } finally {
+        undo();
+      }
     }
     return lines.join('\n');
   } finally {

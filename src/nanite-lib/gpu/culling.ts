@@ -2,7 +2,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, If, Loop, storage, uniform, uniformArray, instanceIndex, workgroupId, localId, numWorkgroups, uint, vec3,
-  uvec2, atomicAdd, atomicStore, atomicLoad, select, max, min, length, dot,
+  uvec2, uvec4, atomicAdd, atomicStore, atomicLoad, select, max, min, length, dot,
 } from 'three/tsl';
 import { switchPx } from './shading.ts';
 import { CHUNK, CHUNK_SHIFT } from './chunks.ts';
@@ -36,10 +36,11 @@ export const cullingMethods = {
     const sb = (arr: Uint32Array, item: number) => new THREE.StorageBufferAttribute(arr, item);
     const u = this.u;
     const base = k * SET_STRIDE;
-    const itemsAttr = sb(new Uint32Array(MAX_ITEMS * 2), 2);
+    // Full-width instance, cluster offset and candidate count (dense meshes exceed 65,535 clusters).
+    const itemsAttr = sb(new Uint32Array(MAX_ITEMS * 4), 4);
     const dispatchAttr = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
     const listAttr = sb(new Uint32Array(LIST_CAP * 4), 2); // the bark list, then the leaf list
-    const items = storage(itemsAttr, 'uvec2', MAX_ITEMS);
+    const items = storage(itemsAttr, 'uvec4', MAX_ITEMS);
     const dispatchA = storage(dispatchAttr, 'uint', 4).toAtomic();
     const ctrA = v.ctr.atomic;
     const barkCount = ctrA.element(base + ARGS.bark + 1), leafCount = ctrA.element(base + ARGS.leaf + 1);
@@ -95,7 +96,7 @@ export const cullingMethods = {
       atomicAdd(stat(2), uint(1));
       Loop({ start: uint(0), end: nItems, type: 'uint', condition: '<' }, ({ i: k }: { i: Uint }) => {
         If(first.add(k).lessThan(MAX_ITEMS), () => {
-          items.element(first.add(k)).assign(uvec2(i, k.mul(WG).bitOr(n.shiftLeft(16))));
+          items.element(first.add(k)).assign(uvec4(i, k.mul(WG), n, 0));
         });
       });
     };
@@ -114,8 +115,8 @@ export const cullingMethods = {
       const itemIdx = workgroupId.x.add(workgroupId.y.mul(numWorkgroups.x));
       const item = items.element(minU(itemIdx, MAX_ITEMS - 1));
       const inst = item.x;
-      const local = item.y.bitAnd(0xffff).add(localId.x);
-      const n = item.y.shiftRight(16);
+      const local = item.y.add(localId.x);
+      const n = item.z;
       If(local.lessThan(n).and(itemIdx.lessThan(atomicLoad(ctrA.element(base + ITEM_COUNT)))), () => {
         const a = this._a(inst);
         const b = this._b(inst);

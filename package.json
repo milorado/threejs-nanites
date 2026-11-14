@@ -26,7 +26,9 @@
     "typecheck": "tsc -p . && tsc -p tools && node tools/check-lib.ts",
     "preview": "vite preview",
     "harness": "node tools/harness.ts",
-    "model": "node --max-old-space-size=8000 tools/nanite-model.ts"
+    "model": "node --max-old-space-size=8000 tools/nanite-model.ts",
+    "test": "node --experimental-transform-types --test --test-timeout=10000 tests/*.test.mjs",
+    "test:browser": "node tests/browser-regressions.mjs"
   },
   "dependencies": {
     "@dgreenheck/ez-tree": "^1.1.0",

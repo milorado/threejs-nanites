@@ -203,23 +203,29 @@ export function loadModel(url: string, height: number): { header: Promise<ModelH
     fail = (e) => (f(e), reject(e));
   });
   const model = new Promise<LoadedModel>((resolve, reject) => {
-    const w = new Worker(new URL('./model-worker.ts', import.meta.url), { type: 'module' });
-    w.onmessage = (e: MessageEvent<LoadedModel | { coarse: LoadedModel } | { header: ModelHeader } | { error: string }>) => {
-      if ('header' in e.data) return gotHeader(e.data.header);
-      if ('coarse' in e.data) return gotCoarse(e.data.coarse);
-      w.terminate();
-      if ('error' in e.data) {
-        const err = new Error(e.data.error);
-        fail(err);
-        reject(err);
-      } else gotCoarse(e.data), resolve(e.data);
-    };
-    w.onerror = (e) => {
-      const err = workerError(`model-worker (${url})`, e);
+    let w: Worker | undefined;
+    const failed = (error: unknown): void => {
+      w?.terminate();
+      const err = error instanceof Error ? error : new Error(String(error));
       fail(err);
       reject(err);
     };
-    w.postMessage({ url: new URL(url, document.baseURI).href, height });
+    try {
+      w = new Worker(new URL('./model-worker.ts', import.meta.url), { type: 'module' });
+      w.onmessage = (e: MessageEvent<LoadedModel | { coarse: LoadedModel } | { header: ModelHeader } | { error: string }>) => {
+        if ('header' in e.data) return gotHeader(e.data.header);
+        if ('coarse' in e.data) return gotCoarse(e.data.coarse);
+        if ('error' in e.data) return failed(new Error(e.data.error));
+        w?.terminate();
+        gotCoarse(e.data);
+        resolve(e.data);
+      };
+      w.onerror = (e) => failed(workerError(`model-worker (${url})`, e));
+      w.onmessageerror = () => failed(new Error(`model-worker (${url}): unreadable message`));
+      w.postMessage({ url: new URL(url, document.baseURI).href, height });
+    } catch (e) {
+      failed(e);
+    }
   });
   return { header, coarse, model };
 }

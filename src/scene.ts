@@ -64,6 +64,7 @@ export function chooseScene(params: URLSearchParams, harness: boolean): SceneCho
     tick(lastMove);
   };
   const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Enter' && buttons.includes(document.activeElement as HTMLButtonElement)) return;
     const pick = e.key === '1' || e.key === 'Enter' ? 'forest' : e.key === '2' ? 'lucy' : null;
     if (pick) (how = 'clicked'), finish(pick);
   };

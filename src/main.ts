@@ -33,7 +33,7 @@ demo.loadLog = ui.entries; // (the harness's --load: the boot's timeline)
 // first held them back ~0.3 s); a null adapter (a blocklisted GPU) gets the warning when it's known.
 // (?nogpu=1: as if the browser had no navigator.gpu; ?webgl=1: the WebGL mode where there is one)
 const gpu = params.get('nogpu') === '1' || params.get('webgl') === '1' ? undefined : navigator.gpu;
-const adapterReady = gpu?.requestAdapter({ powerPreference: 'high-performance' });
+const adapterReady = gpu?.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null);
 
 // The scene (src/scene.ts): the forest or the Lucy forest, chosen on the loading screen while the rest loads (WebGPU
 // only: the WebGL mode has the forest)
@@ -72,12 +72,12 @@ async function start(adapterReady: Promise<GPUAdapter | null>) {
   const loading = beginLoading(scene);
   await ui.update(0.02, 'Waking the GPU');
   const adapter = await adapterReady;
-  if (!adapter) {
+  if (!adapter || adapter.limits.maxStorageBuffersPerShaderStage < 10) {
     // (the WebGL mode has only the forest: the choice ends, and a Lucy forest already chosen is loaded again as one: its
     // planting and its denser Lucy; a rare path, so simply all of it)
     choice?.cancel();
     const forest = (await scene) === 'forest' ? loading : beginLoading(Promise.resolve('forest'));
-    return webgl('This browser has WebGPU, but no GPU it can use (blocklisted or turned off).', forest);
+    return webgl(adapter ? 'This GPU has insufficient WebGPU storage-buffer limits.' : 'This browser has WebGPU, but no GPU it can use (blocklisted or turned off).', forest);
   }
   await startWebGPU({ adapter, ui, demo, params, harness: HARNESS, trees: TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, plantedMs: () => plantedMs, scene, ...loading });
 }
